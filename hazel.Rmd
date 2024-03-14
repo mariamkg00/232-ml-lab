@@ -1,0 +1,13 @@
+
+
+```{r, include=FALSE}
+library(tidyverse)
+library(dplyr)
+
+```
+
+```{r}
+# Read in data
+data <- read_csv("sample_submission.csv")
+```
+
