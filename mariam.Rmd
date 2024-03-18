@@ -1,0 +1,75 @@
+### KNN (K-Nearest Neighbors) Approach
+
+#### Inspecting the data
+
+```{r message = FALSE, warning=FALSE}
+# loading in necessary libraries 
+library(tidyverse)
+library(caret)
+library(tidymodels)
+library(rsample)
+library(skimr)
+library(kknn)
+```
+
+```{r message = FALSE }
+# reading in the data
+cofi_data <- readr::read_csv('data/train.csv')
+
+cofi_data_clean <- cofi_data %>% 
+  janitor::clean_names()
+
+cofi_data_clean$dic <- as.factor(cofi_data_clean$dic)
+```
+
+```{r}
+# primary data visualization 
+
+cofi_data_clean %>% 
+  ggplot()+
+  geom_point(aes(x = r_depth, y = dic))
+
+
+skimr::skim(cofi_data_clean)
+```
+
+```{r}
+# --------------------KNN------------------------------
+
+# splitting the data ----
+cofi_split <- initial_split(cofi_data_clean, prop = 0.75)
+
+cofi_train <- training(cofi_split)
+
+cofi_test <- testing(cofi_split)
+
+
+# preproceesing the data and recipe ----
+
+cofi_recipe <- recipe(dic ~., data = cofi_train) %>% 
+  step_dummy(all_nominal_predictors(), one_hot = TRUE) %>% 
+  step_normalize(all_numeric_predictors()) %>% 
+  step_zv(all_numeric_predictors())
+
+# generating KNN model---
+knn_model <- nearest_neighbor(neighbors = tune()) %>% 
+  set_engine('kknn') %>% 
+  set_mode('classification')
+
+# knn workflow ---- 
+knn_wf <- workflow() %>% 
+  add_model(knn_model) %>% 
+  add_recipe(cofi_recipe)
+
+# cross validation for tuning parameters for knn model 
+
+cv_folds <- vfold_cv(cofi_train, v=10)
+
+# tuning to get the best 5 possible values of k 
+knn_tune <- knn_wf %>% 
+  tune_grid(resamples = cv_folds, grid = 5)
+```
+
+```{r}
+
+```
