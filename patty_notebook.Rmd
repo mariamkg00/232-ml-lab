@@ -1,0 +1,234 @@
+---
+title: "Kaggle Competition EDS 232"
+author: "Patty Park"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Model on GX Boosting
+
+## Load in packages
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(xgboost)
+```
+
+
+## Read in data
+```{r}
+set.seed(50)
+
+#read in training data original
+data_train_original <- read_csv("data/train.csv")
+
+#read in training data
+data_train <- read_csv("data/train.csv") %>% 
+  select(-`...13`, -id) %>% 
+  rename("TA1" = "TA1.x")
+
+#read in testing data
+data_test <- read_csv("data/test.csv") #%>% 
+  select(-id)
+
+View(data_train)
+View(data_test)
+
+#split data into 80 20 split
+# data_split <- initial_split(data, prop = .8) #split data
+# 
+# data_train <- training(data_split)#get training data
+# data_test = testing(data_split) #get testing data
+
+#create folds for all tuning grids
+cv_folds = vfold_cv(data_train, v = 10)
+```
+
+## Create Recipe
+```{r}
+#create recipe
+recipe <- recipe(DIC ~ ., data = data_train) %>% #create model recipe 
+  step_normalize(all_numeric_predictors()) #normalize all numeric predictors
+
+recipe
+```
+
+## Tune for Learn rate
+```{r}
+#-------tuning for learn rate--------
+#create model-------------
+xgb_model_learn <- boost_tree(learn_rate = tune()) %>% #tuning the learn_rate and trees for the parameter
+  set_engine("xgboost") %>% 
+  set_mode("regression")
+
+#create workflow------------
+xgb_workflow = workflow() %>% #create workflow
+  add_model(xgb_model_learn) %>% #add boosted trees model
+  add_recipe(recipe) #added recipe
+```
+
+```{r}
+#----------tune on grid---------------
+#create the grid to tune for the learning rate parameter
+grid_1 <- expand.grid(learn_rate = seq(0.0001, 0.3, length.out = 30))
+
+#tune the model using created grid
+learn_rate_time <- system.time(
+  xbg_tune <- xgb_workflow %>%
+    tune_grid(resamples = cv_folds, grid = grid_1)
+)
+
+
+save(xbg_tune, file = "p_park_rda/xbg_tune.rda")
+
+#load save rda file
+#load(file = here::here("p_park_rda", "xbg_tune.rda"))
+
+#view tuned table dataset to see if we have metrics
+xbg_tune
+
+#find best model
+xbg_best_model_learn <- show_best(xbg_tune, n = 1, metric = "rmse")
+xbg_best_model_learn
+#save learn rate to another variable
+xbg_learn_rate <- xbg_best_model_learn$learn_rate
+
+```
+
+## Tune for Tree Parameters
+```{r}
+#----------tune for tree parameters
+#create model tuning for tree parameters with setting learning rate
+xgb_model_tree <- boost_tree(learn_rate = xbg_learn_rate, 
+                                  trees = 3000, 
+                                  tree_depth = tune(), 
+                                  min_n = tune(), 
+                                  loss_reduction = tune()) %>% #tuning the learn_rate and trees for the parameter
+  set_engine("xgboost") %>%  #nthread = 2
+  set_mode("regression")
+
+#create the workflow
+xgb_workflow_tree <- workflow() %>% #create workflow
+  add_model(xgb_model_tree) %>% #add boosted trees model
+  add_recipe(recipe)
+
+#look at the workflow
+#eel_xgb_workflow_learn
+```
+
+```{r}
+#----------tuning on grid------------
+#set up tuning grid using the `grid_latin_hypercube()`
+
+grid_2 <- grid_latin_hypercube(tree_depth(), min_n(), loss_reduction())
+
+#tune the grid for tree_depth, min_n, and loss_reduction
+xbg_tree_time <- system.time(
+  xbg_tune_tree <- xgb_workflow_tree %>%
+    tune_grid(resamples = cv_folds, grid = grid_2)
+)
+
+#save the file
+save(xbg_tune_tree, file = "p_park_rda/xbg_tune_tree.rda")
+
+#load save rda file
+#load(file = here::here("week_7", "rda", "eel_xbg_tune_latin.rda"))
+
+#look at tuned model to make sure it has metrics
+xbg_tune_tree
+
+#find best model for tree tuned parameters
+xbg_best_model_tree <- show_best(xbg_tune_tree, n = 1, metric = "rmse")
+xbg_best_model_tree
+
+#save tree parameters to another variable
+xbg_tree_depth <- xbg_best_model_tree$tree_depth
+xbg_min_n <- xbg_best_model_tree$min_n
+xbg_loss_reduction <- xbg_best_model_tree$loss_reduction
+```
+
+## Tune for Stochastic Parameters
+```{r}
+#------------tune Stochastic Parameters---------
+#create model to tune for mtry and sample_size
+xgb_model_stoch <- boost_tree(learn_rate = xbg_learn_rate, 
+                                  trees = 3000,
+                                  tree_depth = xbg_tree_depth,
+                                  min_n = xbg_min_n,
+                                  loss_reduction = xbg_loss_reduction,
+                                  mtry = tune(),
+                                  sample_size = tune()) %>% #tuning the learn_rate and trees for the parameter
+  set_engine("xgboost") %>% 
+  set_mode("regression")
+
+#create workflow
+xgb_workflow_stoch <- workflow() %>% #create workflow
+  add_model(xgb_model_stoch) %>% #add boosted trees model
+  add_recipe(recipe) #add recipe
+```
+
+```{r}
+#create grid for sample_prop() and mtry()
+grid_3 <- grid_latin_hypercube(
+  sample_size = sample_prop(),
+  finalize(mtry(), data_train)
+)
+
+# tune grid from the workflow
+xbg_stoch_time <- system.time(
+  xbg_tune_stoch <- xgb_workflow_stoch %>%
+    tune_grid(resamples = cv_folds, grid = grid_3)
+)
+
+# look at tuned grid
+#eel_xbg_tune_stoch
+
+#find best model
+tree_stoch_3 <- show_best(xbg_tune_stoch, n = 1, metric = 'rmse')
+tree_stoch_3
+```
+
+## Finalize workflow and final prediction
+```{r}
+set.seed(50)
+
+#finalize workflow
+rf_final_rmse <- finalize_workflow(xgb_workflow_stoch, select_best(xbg_tune_stoch, metric = "rmse"))
+
+#print out results
+rf_final_rmse
+
+#fit the finalized workflow
+fit_final_model <- fit(rf_final_rmse, data_train)
+fit_final_model
+
+#predict model on testing data and create new dataframe having only what we are interested in
+test_predict_model_xbg <- predict(object = fit_final_model, new_data = data_test) %>% # predict the training set
+  bind_cols(data_test) %>% 
+  select(.pred, id) %>% 
+  rename("DIC" = ".pred") %>% 
+  relocate(id, .before=DIC)
+#view results
+View(test_predict_model_xbg)
+
+
+#find metrics of the predicted train data
+# test_metrics_model <- test_predict_model %>%
+#   metrics(DIC, .pred) # get testing data metrics
+# 
+# test_metrics_model
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
