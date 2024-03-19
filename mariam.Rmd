@@ -23,11 +23,7 @@ cofi_data_clean$dic <- as.factor(cofi_data_clean$dic)
 ```
 
 ```{r}
-# primary data visualization 
-
-cofi_data_clean %>% 
-  ggplot()+
-  geom_point(aes(x = r_depth, y = dic))
+# primary data visualization
 
 
 skimr::skim(cofi_data_clean)
@@ -47,9 +43,9 @@ cofi_test <- testing(cofi_split)
 # preproceesing the data and recipe ----
 
 cofi_recipe <- recipe(dic ~., data = cofi_train) %>% 
-  step_dummy(all_nominal_predictors(), one_hot = TRUE) %>% 
-  step_normalize(all_numeric_predictors()) %>% 
-  step_zv(all_numeric_predictors())
+  step_dummy(all_nominal_predictors()) %>% #create dummy variables from all factors
+  step_normalize(all_numeric_predictors()) #normalize all numeric predictors
+
 
 # generating KNN model---
 knn_model <- nearest_neighbor(neighbors = tune()) %>% 
@@ -65,9 +61,10 @@ knn_wf <- workflow() %>%
 
 cv_folds <- vfold_cv(cofi_train, v=10)
 
+#knn_grid <- grid_regular(neighbors(range = c(1, 15)), levels = 2)
 # tuning to get the best 5 possible values of k 
 knn_tune <- knn_wf %>% 
-  tune_grid(resamples = cv_folds, grid = 5)
+  tune::tune_grid(resamples = cv_folds, grid = 5)
 ```
 
 ```{r}
