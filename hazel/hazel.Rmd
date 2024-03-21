@@ -1,0 +1,183 @@
+
+
+```{r, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(tidymodels)
+library(here)
+library(vip)
+library(parsnip)
+```
+
+```{r}
+# Read in data
+train <- read_csv(here("data","train.csv")) %>% 
+  select(-c("...13","id")) %>%
+  rename("TA1" = "TA1.x")
+
+test <- read_csv(here("data","test.csv"))
+```
+
+```{r}
+set.seed(123)
+# Recipe
+dic_recipe <- recipe(DIC ~ ., data = train) %>% 
+  step_normalize(all_numeric_predictors())
+
+# Cross validation
+cv_folds = vfold_cv(train, v = 10)
+```
+
+```{r}
+set.seed(123)
+# Random forest model development
+rf_model <- rand_forest(mtry = tune(),
+                        trees = tune(),
+                        min_n = tune()
+) %>% 
+  set_engine("ranger", importance = "impurity") %>% 
+  set_mode("regression")
+
+
+# Workflow
+rf_workflow <- workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(dic_recipe)
+
+
+# Tuning
+
+rf_cv_tune <- rf_workflow %>% 
+  tune_grid(resamples = cv_folds, grid = 10,
+            metrics = metric_set(rmse))
+
+```
+
+```{r}
+# Model fitting
+rf_final <- finalize_workflow(rf_workflow,
+                              select_best(rf_cv_tune))
+
+# Fit model to training seet
+rf_fit <- fit(rf_final, train)
+
+# Predict
+test_predict <- predict(rf_fit, test) %>% 
+  bind_cols(test) %>% 
+  select(.pred,id) %>% 
+  rename("DIC" = ".pred") %>% 
+  relocate(id, .before=DIC)
+
+
+test_predict
+
+write.csv(test_predict, "random_forest.csv")
+
+```
+
+
+```{r}
+
+rf_fit %>% 
+  extract_fit_parsnip() %>% 
+  vip() +
+  theme_bw()
+```
+
+```{r}
+# Redo but without R_depth
+
+# Read in data
+train <- read_csv(here("data","train.csv")) %>% 
+  select(-c("...13","id", "R_Depth", "NO2uM","R_TEMP","R_Nuts")) %>%
+  rename("TA1" = "TA1.x")
+
+test <- read_csv(here("data","test.csv")) %>% 
+  select(-c("R_Depth","NO2uM","R_TEMP","R_Nuts"))
+```
+
+
+```{r}
+
+set.seed(123)
+# Recipe
+dic_recipe <- recipe(DIC ~ ., data = train) %>% 
+  step_normalize(all_numeric_predictors())
+
+# Cross validation
+cv_folds = vfold_cv(train, v = 10)
+
+# Random forest model development
+rf_model <- rand_forest(mtry = tune(),
+                        trees = tune(),
+                        min_n = tune()
+) %>% 
+  set_engine("ranger", importance = "impurity") %>% 
+  set_mode("regression")
+
+
+# Workflow
+rf_workflow <- workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(dic_recipe)
+
+
+# Tuning
+
+rf_cv_tune <- rf_workflow %>% 
+  tune_grid(resamples = cv_folds, grid = 10,
+            metrics = metric_set(rmse))
+
+
+# Model fitting
+rf_final <- finalize_workflow(rf_workflow,
+                              select_best(rf_cv_tune))
+
+# Fit model to training seet
+rf_fit <- fit(rf_final, train)
+
+# Predict
+test_predict <- predict(rf_fit, test) %>% 
+  bind_cols(test) %>% 
+  select(.pred,id) %>% 
+  rename("DIC" = ".pred") %>% 
+  relocate(id, .before=DIC)
+
+
+test_predict
+
+write.csv(test_predict, "random_forest4.csv")
+
+rf_fit %>% 
+  extract_fit_parsnip() %>% 
+  vip() +
+  theme_bw()
+
+
+```
+
+```{r}
+
+
+library(yardstick)
+
+
+
+
+subm <- read_csv(here("data","sample_submission.csv"))
+
+test_predict1 <- predict(rf_fit, test) %>% 
+  bind_cols(subm)
+
+
+# Compute RMSE
+rmse_value <- test_predict1 %>%
+  metrics(truth = DIC, estimate = .pred) %>%
+  filter(.metric == "rmse") %>%
+  pull(.estimate)
+
+# Print RMSE value
+print(paste("RMSE:", rmse_value))
+```
+
+
