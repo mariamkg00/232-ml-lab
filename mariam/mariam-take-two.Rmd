@@ -1,0 +1,69 @@
+## Linear Regression
+
+```{r warning = FALSE}
+library(tidymodels)
+library(tidyverse)
+library(dplyr)
+library(janitor)
+library(corrplot)
+library(lubridate)
+```
+
+```{r message = FALSE}
+# reading in the data
+cofi_data <- readr::read_csv('../data/train.csv')
+
+train_data <- cofi_data %>% 
+  clean_names() 
+
+train_data <- train_data %>% 
+  select(-c('id', 'x13', 'ta1_x'))
+
+train_split <- initial_split(train_data, prop = 0.75)
+
+dic_train <- training(train_split)
+
+dic_test <- testing(train_split)
+
+
+
+test_data <- readr::read_csv('../data/test.csv') %>% 
+  clean_names() 
+
+
+dic_recipe <- recipe(dic ~ .,  data = dic_train) %>% 
+  step_center(all_numeric_predictors()) %>%
+  step_zv(all_predictors()) %>% 
+  step_scale(all_numeric_predictors())
+
+lm_model <- linear_reg() %>% 
+  set_engine('lm') %>% 
+  set_mode('regression')
+
+lm_wf <- workflow() %>% 
+  add_recipe(dic_recipe) %>% 
+  add_model(lm_model)
+
+lm_fit <- fit(lm_wf, dic_train)
+
+lm_predict <- predict(lm_fit, dic_test)
+
+
+
+res <- dic_test %>% 
+  bind_cols(lm_predict)
+
+metrics(data = res,
+        truth = dic,
+        estimate = .pred)
+
+
+test_predict <- predict(lm_fit, test_data)
+
+test_results <- test_data %>% 
+  bind_cols(test_predict) %>% 
+  select(id, .pred) %>% 
+  rename(DIC = .pred)
+
+write.csv(test_results, 'lm_model.csv', row.names = FALSE)
+```

@@ -1,0 +1,101 @@
+### KNN (K-Nearest Neighbors) Approach
+
+#### Inspecting the data
+
+```{r message = FALSE, warning=FALSE}
+# loading in necessary libraries 
+library(tidyverse)
+library(caret)
+library(tidymodels)
+library(rsample)
+library(skimr)
+library(kknn)
+library(vip)
+```
+
+```{r message = FALSE }
+# reading in the data
+cofi_data <- readr::read_csv('data/train.csv')
+
+cofi_data_clean <- cofi_data %>% 
+  janitor::clean_names() %>% 
+  select(-x13)
+
+cofi_data_clean$dic <- as.factor(cofi_data_clean$dic)
+```
+
+```{r}
+# primary data visualization
+cofi_data_clean %>% 
+  ggplot()+
+  geom_point(aes(x = id, y = dic))
+
+skimr::skim(cofi_data_clean)
+```
+
+```{r warning = FALSE, message=FALSE}
+# --------------------KNN------------------------------
+
+# splitting the data ----
+cofi_split <- initial_split(cofi_data_clean, prop = 0.75)
+
+cofi_train <- training(cofi_split)
+
+cofi_test <- testing(cofi_split)
+
+
+# preproceesing the data and recipe ----
+
+
+cofi_recipe <- recipe(dic ~ ., data = cofi_train) %>%
+  step_dummy(all_nominal_predictors(), one_hot = TRUE) %>% #create dummy variables from all factors
+  step_normalize(all_numeric_predictors()) #normalize all numeric predictors
+
+
+
+# decision tree specification
+tree_spec_fixed <- decision_tree(
+  cost_complexity = 0.1,
+  tree_depth = 4,
+  min_n = 11) %>% 
+  set_engine('rpart') %>% 
+  set_mode('classification')
+
+
+# tuning decision tree specification
+tree_spec_tune <- decision_tree(
+  cost_complexity = tune(),
+  tree_depth = tune(),
+  min_n = tune()) %>% 
+  set_engine('rpart') %>% 
+  set_mode('classification')
+
+# tree grid
+
+tree_grid <- grid_regular(cost_complexity(),tree_depth(), min_n(), levels = 5)
+
+# generating wf
+
+tree_wf <- workflow() %>% 
+  add_recipe(cofi_recipe) %>% 
+  add_model(tree_spec_tune)
+
+
+# set up k-fold cv
+tree_cv <- cofi_train %>% 
+  vfold_cv(v = 10)
+```
+
+```{r}
+doParallel::registerDoParallel() # build trees in parallel
+
+system.time(
+  tree_rs <- tune_grid(
+    tree_spec_tune,
+    dic ~.,
+    resamples = tree_cv,
+    grid = tree_grid,
+    metrics = metric_set(accuracy)
+  )
+)
+```
